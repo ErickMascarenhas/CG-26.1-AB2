@@ -1,0 +1,10 @@
+# ninja log v5
+39	3573	8030272342466004	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	c42c36907b23e889
+71	3606	8030272342640390	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	7b9b8b35ad1ecfd4
+1	3637	8030272342778298	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	d4865fe2e67df3af
+81	3671	8030272343567322	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	b60e08f3cbcd6792
+25	3755	8030272344366048	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	84b905d0a00176ad
+93	3987	8030272346757052	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	28fed25ce133ad62
+57	4023	8030272347116808	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	d21fbc77018b73c0
+14	4179	8030272348651577	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	7a408759033254d7
+4180	4394	8030272350856256	C:/Users/Usuario/Downloads/Github/Goalkeeper VR/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/x3t6i1at/obj/arm64-v8a/libgame.so	4a4193e4b0b6cd7f
