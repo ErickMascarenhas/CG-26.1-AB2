@@ -8,6 +8,7 @@ Simulador imersivo de **goleiro** em Realidade Virtual para **Meta Quest 3S**, f
 
 ## Sumário
 
+- [Clonar o projeto](#clonar-o-projeto)
 - [Requisitos](#requisitos)
 - [Como testar SEM headset (XR Device Simulator)](#como-testar-sem-headset)
 - [Como rodar no Quest 3S](#como-rodar-no-quest-3s)
@@ -20,6 +21,29 @@ Simulador imersivo de **goleiro** em Realidade Virtual para **Meta Quest 3S**, f
 - [Problemas conhecidos](#problemas-conhecidos)
 - [Publicação no GitHub](#publicação-no-github)
 - [Como contribuir](#como-contribuir)
+
+---
+
+## Clonar o projeto
+
+> **IMPORTANTE — instale o Git LFS ANTES de clonar.** O projeto usa Git LFS para arquivos grandes (ex.: `Assets/Models/Stadium.glb`, ~350 MB). Sem o LFS, esses arquivos vêm como pequenos "ponteiros" de texto e o projeto **não abre corretamente** na Unity.
+
+```bash
+# 1. Instale o Git LFS uma única vez (https://git-lfs.com)
+git lfs install
+
+# 2. Clone normalmente — os arquivos LFS baixam junto
+git clone https://github.com/ErickMascarenhas/CG-26.1-AB2.git
+```
+
+Se você **já clonou antes de instalar o LFS**, rode dentro da pasta do projeto para baixar os arquivos reais:
+
+```bash
+git lfs install
+git lfs pull
+```
+
+Depois, abra a pasta no **Unity 6** (`6000.0.62f1`). A `Library/` é regenerada automaticamente no primeiro import.
 
 ---
 
