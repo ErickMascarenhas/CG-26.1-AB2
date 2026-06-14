@@ -13,3 +13,6 @@
 .vs/
 .idea/
 .DS_Store
+.plastic/
+.utmp/
+ignore.conf
