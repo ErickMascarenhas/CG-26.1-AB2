@@ -15,12 +15,14 @@ Simulador imersivo de **goleiro** em Realidade Virtual para **Meta Quest 3S**, f
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Arquitetura e scripts](#arquitetura-e-scripts)
 - [Montagem da cena (wiring)](#montagem-da-cena)
+- [Passo a passo na Unity](#passo-a-passo-na-unity)
 - [Estado por fase](#estado-por-fase)
 - [Pipeline de assets](#pipeline-de-assets)
 - [Parâmetros de ajuste (feel)](#parâmetros-de-ajuste)
 - [Problemas conhecidos](#problemas-conhecidos)
 - [Publicação no GitHub](#publicação-no-github)
 - [Como contribuir](#como-contribuir)
+- [Passo a passo — Executar no Meta Quest 3S](#passo-a-passo--executar-no-meta-quest-3s)
 
 ---
 
@@ -169,6 +171,47 @@ Objetos e ligações esperados na `Goalkeeper.unity`:
 > - **ShotIndicator**: sim — basta um GameObject vazio (em qualquer posição) com o script, ligado ao `MatchManager`. Ele se reposiciona sozinho ao mostrar a mira.
 > - **AISoccerBrain / SoccerTypes**: corretos sem anexar a nada (lógica/estática).
 > - **SoccerPlayer**: deve ficar **no prefab** do jogador, com `teamRenderer` = o SkinnedMeshRenderer do modelo e os índices de material de camisa/pele (ou `-1` para não tingir, se cada time já tem material próprio).
+
+---
+
+## Passo a passo na Unity
+
+Sequência recomendada depois de abrir o projeto na Unity (deixa IA, animações, times e torcida prontos para testar).
+
+### 1. Abrir e limpar
+
+- Abra `Assets/Scenes/Goalkeeper.unity` e remova os **3 resquícios do atacante único legado** (removido do código):
+  1. Na **Hierarchy**, delete o GameObject **"Attacker" desativado (cinza)** — é o atacante único legado, posicionado manualmente na cena (não o que o `TeamSpawner` cria em runtime). Vai aparecer com *missing script* — é esperado.
+  2. No **`GoalCalibrator` → evento `OnGoalCalibrated`**, remova a linha que virou *Missing* (era `EnemyShooter.OnGoalCalibratedHandler`). **Mantenha** a linha do `GameManager.StartMatch`.
+  3. No **`GameManager`**, o campo "Enemy Shooter" some sozinho (a Unity limpa) — nada a fazer.
+
+### 2. Animações (um clique)
+
+- Menu **Tools → Goalkeeper VR → Build Player Animators**.
+- Ele marca loop nas clips de idle/jog, cria `Assets/Animations/PlayerController.controller` (Idle⇄Run via `IsRunning`; `Shoot`/`Pass` por trigger) e já atribui o **Animator + Avatar** nos dois prefabs e o campo `SoccerPlayer.animator`. Confira o diálogo de confirmação (mostra quais clips usou).
+
+### 3. Times (dois modelos)
+
+- Selecione o objeto com **`TeamSpawner`** → **Ally Prefab** = `Attacker`, **Enemy Prefab** = `Attacker Enemy`, **Tint Teams** desligado. Confirme **Field Center/Length/Width**.
+
+### 4. Torcida
+
+- Crie um **GameObject vazio** no centro do campo e adicione o componente **`CrowdSpawner`**.
+- Menu **Tools → Goalkeeper VR → Build Crowd** (gera `CrowdIdle.mat`/`CrowdCheer.mat` e liga no spawner).
+- Ajuste no `CrowdSpawner`: `fieldLength`/`fieldWidth` iguais aos do campo, e `rows`/`rowRise`/`standOffset` para encaixar na arquibancada. Garanta que o **`GameManager.crowdManager`** aponte para o `CrowdManager`.
+- Pré-visualize com **botão direito no `CrowdSpawner` → Spawn Now** (ou só dê Play).
+
+### 5. NavMesh
+
+- Se ainda não fez: **`NavMesh Surface`** no chão → **Bake** cobrindo todo o campo.
+
+### 6. Testar (simulador)
+
+- **Play → H → TAB → P** com cada mão. A partida começa; observe os jogadores mantendo **formação/espaçamento** e **se dispersando do gol** após cada gol/defesa.
+
+### 7. Ajuste de _feel_
+
+- No **`MatchManager`**: *Formação (anti-agrupamento)* (`blockLateralShift`, `blockDepthShift`, `separationRadius`, `separationStrength`) e *Dispersão pós-gol* (`disperseDistance`).
 
 ---
 
