@@ -19,7 +19,6 @@ Simulador imersivo de **goleiro** em Realidade Virtual para **Meta Quest 3S**, f
 - [Pipeline de assets](#pipeline-de-assets)
 - [Parâmetros de ajuste (feel)](#parâmetros-de-ajuste)
 - [Problemas conhecidos](#problemas-conhecidos)
-- [Publicação no GitHub](#publicação-no-github)
 - [Como contribuir](#como-contribuir)
 
 ---
