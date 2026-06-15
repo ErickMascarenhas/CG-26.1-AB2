@@ -10,7 +10,6 @@ GameObject:
   m_Component:
   - component: {fileID: 1093526802808363758}
   - component: {fileID: 2478365873913431024}
-  - component: {fileID: 6406112519769114606}
   - component: {fileID: -6504304030293387001}
   m_Layer: 0
   m_Name: Attacker Enemy
@@ -57,37 +56,6 @@ NavMeshAgent:
   m_BaseOffset: 0
   m_WalkableMask: 4294967295
   m_ObstacleAvoidanceType: 4
---- !u!114 &6406112519769114606
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7521628287236698864}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a50599a32dfab7e4897d529ae98da3d4, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  ball: {fileID: 0}
-  postLeft: {fileID: 0}
-  postRight: {fileID: 0}
-  shootingLine: {fileID: 0}
-  shootingDistanceFromGoal: 7
-  runSpeed: 5
-  dribbleOffset: 0.5
-  ballRadius: 0.11
-  shotSpeed: 15
-  horizontalVariance: 0.05
-  minTargetHeight: 0.3
-  maxTargetHeight: 1.8
-  OnShootStart:
-    m_PersistentCalls:
-      m_Calls: []
-  OnShootExecuted:
-    m_PersistentCalls:
-      m_Calls: []
-  debugText: {fileID: 0}
 --- !u!114 &-6504304030293387001
 MonoBehaviour:
   m_ObjectHideFlags: 0

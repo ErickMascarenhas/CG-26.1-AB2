@@ -21,35 +21,134 @@ public static class AISoccerBrain
     // -------------------------------------------------------------------------
     /// <summary>
     /// Calcula o alvo de movimentação de um jogador sem a bola.
-    /// Se for o perseguidor designado do time, vai à bola; senão, ocupa a
-    /// posição tática (blend home + viés para a bola + ficar entre bola e gol próprio).
+    ///
+    /// Filosofia (corrige o "alinhamento/agrupamento"): o time se desloca como um
+    /// BLOCO COESO, não como indivíduos que correm todos para a bola. Cada jogador
+    /// permanece na sua LANE (posição home por papel) e o bloco inteiro:
+    ///   - desliza lateralmente (X) em direção ao lado da bola;
+    ///   - sobe (atacando) ou recua (defendendo) em Z conforme a posse e o papel.
+    /// Por cima disso aplicamos SEPARAÇÃO entre companheiros para nunca empilhar.
+    ///
+    /// Só o perseguidor designado vai de fato à bola.
     /// </summary>
+    /// <param name="self">Jogador.</param>
+    /// <param name="ballPos">Posição da bola.</param>
+    /// <param name="ownGoalCenter">Gol do próprio time (para postura defensiva).</param>
+    /// <param name="fieldCenter">Centro do campo (referência do deslocamento do bloco).</param>
+    /// <param name="teamHasBall">Meu time está com a posse? (define subir/recuar).</param>
+    /// <param name="isDesignatedChaser">Sou o perseguidor designado?</param>
+    /// <param name="teammates">Companheiros (para separação anti-agrupamento).</param>
+    /// <param name="lateralShift">Quanto o bloco desliza no eixo X rumo à bola (0..1).</param>
+    /// <param name="depthShift">Quanto o bloco sobe/recua no eixo Z (metros).</param>
+    /// <param name="separationRadius">Distância mínima desejada entre companheiros.</param>
+    /// <param name="separationStrength">Força do empurrão de separação.</param>
     public static Decision DecideOffBall(
         SoccerPlayer self,
         Vector3 ballPos,
         Vector3 ownGoalCenter,
+        Vector3 fieldCenter,
+        bool teamHasBall,
         bool isDesignatedChaser,
-        float ballBias = 0.25f,
-        float defendBias = 0.15f)
+        IReadOnlyList<SoccerPlayer> teammates,
+        float lateralShift = 0.45f,
+        float depthShift = 3.0f,
+        float separationRadius = 2.4f,
+        float separationStrength = 1.2f)
     {
         if (isDesignatedChaser)
         {
             return new Decision { type = DecisionType.ChaseBall, targetPosition = ballPos };
         }
 
-        // Blend: começa na home, puxa um pouco para a bola e um pouco para a
-        // linha entre a bola e o gol próprio (postura defensiva).
         Vector3 home = self.HomePosition;
-        Vector3 towardBall = Vector3.Lerp(home, ballPos, ballBias);
 
-        Vector3 betweenBallAndGoal = (ballPos + ownGoalCenter) * 0.5f;
-        Vector3 target = Vector3.Lerp(towardBall, betweenBallAndGoal, defendBias);
+        // 1) Deslocamento lateral do BLOCO: todo mundo acompanha o lado da bola,
+        //    mantendo a sua distância relativa à home (preserva a forma da linha).
+        float shiftX = (ballPos.x - fieldCenter.x) * lateralShift;
 
-        // Mantém a coordenada de profundidade (Z) próxima da home para não
-        // bagunçar a formação (defensores não sobem demais).
+        // 2) Deslocamento em profundidade por POSSE e PAPEL.
+        //    Sentido do ataque do próprio time = do gol próprio para o centro.
+        float attackDir = Mathf.Sign(fieldCenter.z - ownGoalCenter.z);
+        if (attackDir == 0f) attackDir = 1f;
+
+        float roleDepth = RoleDepthFactor(self.role); // atacante sobe mais, zagueiro menos
+        float shiftZ = teamHasBall
+            ?  depthShift * roleDepth * attackDir            // com a bola: sobe
+            : -depthShift * (1f - roleDepth) * attackDir;    // sem a bola: compacta atrás
+
+        Vector3 target = new Vector3(home.x + shiftX, home.y, home.z + shiftZ);
+
+        // 3) Separação: empurra para longe de companheiros próximos (anti-empilhamento).
+        if (teammates != null)
+        {
+            Vector3 push = Vector3.zero;
+            for (int i = 0; i < teammates.Count; i++)
+            {
+                var mate = teammates[i];
+                if (mate == null || mate == self) continue;
+
+                Vector3 d = self.transform.position - mate.transform.position;
+                d.y = 0f;
+                float dist = d.magnitude;
+                if (dist > 0.001f && dist < separationRadius)
+                {
+                    // Quanto mais perto, mais forte o empurrão (linear).
+                    push += d.normalized * (separationRadius - dist) / separationRadius;
+                }
+            }
+            target += push * separationStrength;
+        }
+
         target.y = home.y;
-
         return new Decision { type = DecisionType.MoveToFormation, targetPosition = target };
+    }
+
+    /// <summary>
+    /// Quanto cada papel "sobe" no campo (0 = bem recuado, 1 = bem adiantado).
+    /// Mantém zagueiros atrás e atacantes na frente — evita o alinhamento numa linha só.
+    /// </summary>
+    private static float RoleDepthFactor(Role role)
+    {
+        switch (role)
+        {
+            case Role.Goalkeeper: return 0.0f;
+            case Role.Defender:   return 0.25f;
+            case Role.Midfielder: return 0.6f;
+            case Role.Forward:    return 0.9f;
+            default:              return 0.5f;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Dispersão pós-gol — alvos espalhados longe do gol
+    // -------------------------------------------------------------------------
+    /// <summary>
+    /// Alvo de dispersão após um gol/defesa: a home do jogador empurrada para LONGE
+    /// do gol indicado, com um leque lateral por índice, para que os jogadores se
+    /// afastem do gol em vez de ficarem amontoados nele.
+    /// </summary>
+    public static Vector3 DisperseTarget(
+        SoccerPlayer self,
+        Vector3 goalToLeave,
+        Vector3 fieldCenter,
+        int indexInTeam,
+        int teamCount,
+        float spreadDistance = 6f)
+    {
+        Vector3 home = self.HomePosition;
+
+        // Direção "para longe do gol" (do gol em direção ao centro do campo).
+        Vector3 away = fieldCenter - goalToLeave; away.y = 0f;
+        if (away.sqrMagnitude < 0.01f) away = Vector3.forward;
+        away.Normalize();
+
+        // Leque lateral: distribui os jogadores ao longo do eixo perpendicular.
+        Vector3 side = Vector3.Cross(Vector3.up, away);
+        float t = teamCount > 1 ? (indexInTeam / (float)(teamCount - 1)) - 0.5f : 0f;
+
+        Vector3 target = home + away * spreadDistance + side * (t * spreadDistance * 1.5f);
+        target.y = home.y;
+        return target;
     }
 
     // -------------------------------------------------------------------------

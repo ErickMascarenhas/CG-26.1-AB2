@@ -66,6 +66,20 @@ public class MatchManager : MonoBehaviour
     [Tooltip("Quão longe o dribleador inimigo desvia lateralmente do defensor mais próximo.")]
     public float dribbleEvadeStrength = 2.0f;
 
+    [Header("Formação (anti-agrupamento)")]
+    [Tooltip("Quanto o BLOCO desliza lateralmente (X) rumo à bola (0..1). Menor = mais espalhado.")]
+    [Range(0f, 1f)] public float blockLateralShift = 0.45f;
+    [Tooltip("Quanto o bloco sobe/recua em profundidade (Z) ao atacar/defender, em metros.")]
+    public float blockDepthShift = 3.0f;
+    [Tooltip("Distância mínima desejada entre companheiros (separação anti-empilhamento).")]
+    public float separationRadius = 2.4f;
+    [Tooltip("Força do empurrão de separação entre companheiros.")]
+    public float separationStrength = 1.2f;
+
+    [Header("Dispersão pós-gol")]
+    [Tooltip("Distância que os jogadores se afastam do gol ao comemorar/reagir a um gol.")]
+    public float disperseDistance = 6f;
+
     [Header("Áudio")]
     public AudioSource sfx;
     public AudioClip kickClip;
@@ -341,13 +355,14 @@ public class MatchManager : MonoBehaviour
     {
         bool teamHasBall = _owner != null && _owner.team == p.team;
         Vector3 ownGoal = p.team == Team.Enemy ? GoalPos(enemyGoalCenter) : GoalPos(playerGoalCenter);
+        Vector3 fieldCenter = spawner.fieldCenter != null ? spawner.fieldCenter.position : transform.position;
+        var team = p.team == Team.Ally ? spawner.allyPlayers : spawner.enemyPlayers;
 
         // Time sem a bola: os N mais próximos perseguem; resto, formação.
         // Equilíbrio defensivo: se a bola está no nosso terço, mais defensores pressionam.
         bool isChaser = false;
         if (!teamHasBall)
         {
-            var team = p.team == Team.Ally ? spawner.allyPlayers : spawner.enemyPlayers;
             int chasers = chasersPerTeam;
             float fieldHalf = spawner.fieldLength * 0.5f;
             if (Vector3.Distance(ballPos, ownGoal) < fieldHalf * 0.5f)
@@ -355,8 +370,42 @@ public class MatchManager : MonoBehaviour
             isChaser = IsAmongNearestInList(p, ballPos, team, chasers);
         }
 
-        Decision d = AISoccerBrain.DecideOffBall(p, ballPos, ownGoal, isChaser);
+        // Bloco coeso + lanes por papel + separação (corrige alinhamento/agrupamento).
+        Decision d = AISoccerBrain.DecideOffBall(
+            p, ballPos, ownGoal, fieldCenter, teamHasBall, isChaser, team,
+            blockLateralShift, blockDepthShift, separationRadius, separationStrength);
         p.MoveTo(d.targetPosition);
+    }
+
+    // -------------------------------------------------------------------------
+    // Dispersão após gol/defesa (jogadores se afastam do gol no intervalo)
+    // -------------------------------------------------------------------------
+    /// <summary>
+    /// Espalha os jogadores para longe do gol indicado durante o intervalo pós-jogada.
+    /// Chamado pelo GameManager antes do reset. Pausa a tomada de decisão da partida.
+    /// </summary>
+    public void Disperse(bool fromPlayerGoal = true)
+    {
+        if (!_spawned) return;
+        _playing = false; // congela a lógica de partida durante a comemoração
+
+        Vector3 goalToLeave = fromPlayerGoal ? GoalPos(playerGoalCenter) : GoalPos(enemyGoalCenter);
+        Vector3 fieldCenter = spawner.fieldCenter != null ? spawner.fieldCenter.position : transform.position;
+
+        DisperseTeam(spawner.allyPlayers, goalToLeave, fieldCenter);
+        DisperseTeam(spawner.enemyPlayers, goalToLeave, fieldCenter);
+    }
+
+    private void DisperseTeam(List<SoccerPlayer> team, Vector3 goalToLeave, Vector3 fieldCenter)
+    {
+        if (team == null) return;
+        for (int i = 0; i < team.Count; i++)
+        {
+            var p = team[i];
+            if (p == null) continue;
+            Vector3 target = AISoccerBrain.DisperseTarget(p, goalToLeave, fieldCenter, i, team.Count, disperseDistance);
+            p.MoveTo(target);
+        }
     }
 
     // -------------------------------------------------------------------------

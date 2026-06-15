@@ -70,6 +70,22 @@ public class SoccerPlayer : MonoBehaviour
         name = $"{t}_{r}";
     }
 
+    /// <summary>
+    /// Inicialização SEM tingir (um modelo por time): mantém os materiais do prefab.
+    /// </summary>
+    public void InitNoTint(Team t, Role r, Vector3 home, float speed)
+    {
+        team = t;
+        role = r;
+        HomePosition = home;
+        baseSpeed = speed;
+        if (_agent == null) _agent = GetComponent<NavMeshAgent>();
+        _agent.speed = speed;
+
+        WarpTo(home);
+        name = $"{t}_{r}";
+    }
+
     // -------------------------------------------------------------------------
     // NavMesh driver
     // -------------------------------------------------------------------------

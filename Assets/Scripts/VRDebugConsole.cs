@@ -20,7 +20,7 @@ using UnityEngine;
 ///   4. Pronto: qualquer Debug.Log aparece no painel automaticamente.
 ///
 /// Dica: para valores CONTÍNUOS (ex.: fechamento da mão a cada frame), use os
-/// campos "Debug Text" dos componentes (GoalCalibrator/HandTrackingCatch/EnemyShooter),
+/// campos "Debug Text" dos componentes (GoalCalibrator/HandTrackingCatch/MatchManager),
 /// que sobrescrevem o texto a cada frame. Este console é para EVENTOS e ERROS.
 /// </summary>
 public class VRDebugConsole : MonoBehaviour

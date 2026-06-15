@@ -6,13 +6,15 @@ using TMPro;
 /// <summary>
 /// Fase 3/4 — Game Manager (Goalkeeper VR)
 ///
-/// Orquestra o loop completo: calibração → spawn → drible → chute → resolução
-/// (agarrou / gol / fora / timeout) → placar → feedback → reset → próxima jogada.
+/// Orquestra o loop completo no modo ECOSSISTEMA (partida com os 20 agentes):
+/// calibração → kickoff → defesa/gol → placar → feedback → dispersão → reset.
+///
+/// O atacante único legado (EnemyShooter) foi removido — a simulação completa
+/// (MatchManager) é o único modo.
 ///
 /// Ligações de eventos:
-///   HandTrackingCatch.OnCatch  → OnBallCaught()
-///   HandTrackingCatch.OnParry  → OnBallParried()
-///   EnemyShooter.OnShootExecuted → OnShotFired()
+///   HandTrackingCatch.OnCatch       → OnBallCaught()
+///   HandTrackingCatch.OnParry       → OnBallParried()
 ///   GoalCalibrator.OnGoalCalibrated → StartMatch()
 /// </summary>
 public class GameManager : MonoBehaviour
@@ -21,13 +23,9 @@ public class GameManager : MonoBehaviour
     // Inspector
     // -------------------------------------------------------------------------
     [Header("Referências da cena")]
-    [Tooltip("Simulação de partida (modo ecossistema). Se atribuído, substitui o atacante único.")]
+    [Tooltip("Simulação de partida (modo ecossistema).")]
     public MatchManager matchManager;
-    [Tooltip("Atacante único (modo legado). Usado só se Match Manager estiver vazio.")]
-    public EnemyShooter enemyShooter;
     public Rigidbody ball;
-    public Transform ballSpawnPoint;
-    public Transform attackerSpawnPoint;
 
     [Tooltip("Mãos do goleiro — usadas para soltar a bola ao reiniciar a jogada.")]
     public HandTrackingCatch leftHand;
@@ -36,9 +34,9 @@ public class GameManager : MonoBehaviour
     [Header("Linha do gol")]
     [Tooltip("Plano Z da linha do gol. Gol detectado quando ball.z <= goalLine.z (sentido -Z).")]
     public Transform goalLine;
-    [Tooltip("Trave esquerda (mesma do EnemyShooter). Limite X esquerdo.")]
+    [Tooltip("Trave esquerda. Limite X esquerdo.")]
     public Transform postLeft;
-    [Tooltip("Trave direita (mesma do EnemyShooter). Limite X direito.")]
+    [Tooltip("Trave direita. Limite X direito.")]
     public Transform postRight;
     [Tooltip("Altura do travessão (m) a partir do chão.")]
     public float crossbarHeight = 2.6f;
@@ -60,10 +58,6 @@ public class GameManager : MonoBehaviour
     [Header("Timing")]
     [Tooltip("Delay após resolver uma jogada antes de reiniciar.")]
     public float resetDelay = 3f;
-    [Tooltip("Delay antes do atacante correr.")]
-    public float preShotDelay = 1f;
-    [Tooltip("Tempo máximo (s) de um chute sem resolver — então conta como defesa.")]
-    public float shotTimeout = 4f;
 
     [Header("Efeitos")]
     [Tooltip("Flash ao defender (CanvasGroup ou Image com alpha).")]
@@ -73,7 +67,7 @@ public class GameManager : MonoBehaviour
     public CrowdManager crowdManager;
 
     [Header("Spawn ao iniciar")]
-    [Tooltip("Se ligado, atacante e bola ficam ocultos até a partida começar.")]
+    [Tooltip("Se ligado, a bola fica oculta até a partida começar.")]
     public bool hideUntilStart = true;
 
     [Header("Eventos externos")]
@@ -87,10 +81,9 @@ public class GameManager : MonoBehaviour
     private int _saves = 0;
     private int _goals = 0;
 
-    private enum MatchState { WaitingCalibration, BetweenShots, ShotInFlight, RoundOver }
+    private enum MatchState { WaitingCalibration, Live, RoundOver }
     private MatchState _matchState = MatchState.WaitingCalibration;
     private bool _roundResolved = false;
-    private float _shotTimer = 0f;
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -101,34 +94,18 @@ public class GameManager : MonoBehaviour
         UpdateUI();
         SetMessage("Abra os bracos e feche as maos para calibrar.");
 
-        // Esconde atacante único e bola só no modo legado (sem MatchManager)
-        if (hideUntilStart && matchManager == null)
-        {
-            if (enemyShooter != null) enemyShooter.gameObject.SetActive(false);
-            if (ball != null) ball.gameObject.SetActive(false);
-        }
+        if (hideUntilStart && ball != null) ball.gameObject.SetActive(false);
     }
-
-    private bool UseMatch => matchManager != null;
 
     /// <summary>Chamado pelo MatchManager quando um inimigo finaliza ao gol do jogador.</summary>
     public void NotifyShot() => PlayAudio(clipWhistle, 0.6f);
 
     private void Update()
     {
-        if (_matchState != MatchState.ShotInFlight || _roundResolved) return;
+        if (_matchState != MatchState.Live || _roundResolved) return;
 
-        _shotTimer += Time.deltaTime;
-
-        if (CheckBallReachedGoalPlane()) return;     // resolveu por gol ou fora
-
-        // Timeout só faz sentido no modo legado (chute discreto). Na partida contínua
-        // a defesa vem do agarre; bola que rola longe é tratada pelo MatchManager.
-        if (!UseMatch && _shotTimer >= shotTimeout)
-        {
-            Debug.Log("[GameManager] Timeout do chute — contando como defesa.");
-            RegisterSave();
-        }
+        // Detecta GOL pela bola "viva" cruzando o plano do gol (defesa vem do agarre).
+        CheckBallReachedGoalPlane();
     }
 
     // -------------------------------------------------------------------------
@@ -136,23 +113,20 @@ public class GameManager : MonoBehaviour
     // -------------------------------------------------------------------------
     private void ValidateReferences()
     {
-        if (matchManager == null && enemyShooter == null)
-            Debug.LogError("[GameManager] Nem 'Match Manager' nem 'Enemy Shooter' atribuídos.");
+        if (matchManager == null) Debug.LogError("[GameManager] 'Match Manager' não atribuído.");
         if (ball == null)         Debug.LogError("[GameManager] 'Ball' não atribuída.");
         if (goalLine == null)     Debug.LogError("[GameManager] 'Goal Line' não atribuída.");
         if (postLeft == null || postRight == null)
             Debug.LogWarning("[GameManager] Traves não atribuídas — detecção de gol fica só por Z.");
         if (leftHand == null || rightHand == null)
             Debug.LogWarning("[GameManager] Mãos não atribuídas — bola pode não soltar no reset.");
-        if (ballSpawnPoint == null)     Debug.LogWarning("[GameManager] 'Ball Spawn Point' não atribuído.");
-        if (attackerSpawnPoint == null) Debug.LogWarning("[GameManager] 'Attacker Spawn Point' não atribuído.");
-        if (audioSource == null)        Debug.LogWarning("[GameManager] 'Audio Source' não atribuído — sem áudio.");
+        if (audioSource == null)  Debug.LogWarning("[GameManager] 'Audio Source' não atribuído — sem áudio.");
     }
 
     // -------------------------------------------------------------------------
     // Resolução do chute
     // -------------------------------------------------------------------------
-    /// <summary>Verifica se a bola cruzou o plano do gol. Resolve como GOL ou FORA. Retorna true se resolveu.</summary>
+    /// <summary>Verifica se a bola cruzou o plano do gol e resolve como GOL. Retorna true se resolveu.</summary>
     private bool CheckBallReachedGoalPlane()
     {
         if (ball == null || goalLine == null) return false;
@@ -163,7 +137,7 @@ public class GameManager : MonoBehaviour
         Vector3 p = ball.transform.position;
         if (p.z > goalLine.position.z) return false; // ainda não chegou ao plano
 
-        // Cruzou o plano — é gol (dentro dos limites) ou fora (largo/por cima)?
+        // Cruzou o plano — é gol (dentro dos limites)?
         bool insideWidth = true;
         if (postLeft != null && postRight != null)
         {
@@ -175,10 +149,8 @@ public class GameManager : MonoBehaviour
 
         if (insideWidth && underBar) { RegisterGoal(); return true; }
 
-        // Fora dos limites: no modo partida, deixa o MatchManager tratar (saída de campo).
-        if (UseMatch) return false;
-        RegisterMiss();
-        return true;
+        // Fora dos limites: o MatchManager trata a saída de campo (reinício).
+        return false;
     }
 
     // -------------------------------------------------------------------------
@@ -186,27 +158,18 @@ public class GameManager : MonoBehaviour
     // -------------------------------------------------------------------------
     public void OnBallCaught()
     {
-        if (_matchState != MatchState.ShotInFlight || _roundResolved) return;
+        if (_matchState != MatchState.Live || _roundResolved) return;
         Debug.Log("[GameManager] Bola agarrada → defesa.");
         RegisterSave();
     }
 
     public void OnBallParried()
     {
-        if (_matchState != MatchState.ShotInFlight || _roundResolved) return;
-        // Feedback imediato; a resolução final vem do plano do gol ou do timeout.
+        if (_matchState != MatchState.Live || _roundResolved) return;
+        // Feedback imediato; a resolução final vem do plano do gol.
         PlayAudio(clipSave, 0.7f);
         StartCoroutine(ShowFlash());
         Debug.Log("[GameManager] Espalmar — aguardando desfecho.");
-    }
-
-    public void OnShotFired(Vector3 velocity)
-    {
-        _matchState = MatchState.ShotInFlight;
-        _roundResolved = false;
-        _shotTimer = 0f;
-        PlayAudio(clipWhistle);
-        Debug.Log($"[GameManager] Chute em andamento. vel={velocity.magnitude:F1} m/s");
     }
 
     // -------------------------------------------------------------------------
@@ -247,51 +210,27 @@ public class GameManager : MonoBehaviour
         StartCoroutine(StartNextRound());
     }
 
-    private void RegisterMiss()
-    {
-        if (_roundResolved) return;
-        _roundResolved = true;
-
-        PlayAudio(clipCrowd, 0.3f);
-        SetMessage("FORA!");
-        Debug.Log("[GameManager] Chute para fora — nem gol nem defesa.");
-
-        StartCoroutine(StartNextRound());
-    }
-
     // -------------------------------------------------------------------------
-    // Ciclo de chutes
+    // Ciclo de jogadas
     // -------------------------------------------------------------------------
     public void StartMatch()
     {
+        if (matchManager == null)
+        {
+            Debug.LogError("[GameManager] Não é possível iniciar: 'Match Manager' não atribuído.");
+            return;
+        }
+
         _saves = 0;
         _goals = 0;
         UpdateUI();
         SetMessage("");
 
-        if (UseMatch)
-        {
-            // Modo ecossistema: a partida cuida de bola e jogadores.
-            if (ball != null) ball.gameObject.SetActive(true);
-            _roundResolved = false;
-            _matchState = MatchState.ShotInFlight; // "ao vivo": detecta gol/defesa todo frame
-            matchManager.OnGoalCalibratedHandler(goalWidthForMatch());
-            matchManager.KickOff();
-        }
-        else
-        {
-            // Modo legado: atacante único
-            _matchState = MatchState.BetweenShots;
-            if (enemyShooter != null)
-            {
-                enemyShooter.gameObject.SetActive(true);
-                if (attackerSpawnPoint != null)
-                    enemyShooter.ResetToIdle(attackerSpawnPoint.position);
-            }
-            if (ball != null) ball.gameObject.SetActive(true);
-            ResetBall();
-            StartCoroutine(BeginShotSequence());
-        }
+        if (ball != null) ball.gameObject.SetActive(true);
+        _roundResolved = false;
+        _matchState = MatchState.Live; // "ao vivo": detecta gol/defesa todo frame
+        matchManager.OnGoalCalibratedHandler(goalWidthForMatch());
+        matchManager.KickOff();
 
         PlayAudio(clipWhistle);
         Debug.Log("[GameManager] Partida iniciada!");
@@ -307,59 +246,25 @@ public class GameManager : MonoBehaviour
     private IEnumerator StartNextRound()
     {
         _matchState = MatchState.RoundOver;
-        if (UseMatch) matchManager.SetPlaying(false); // pausa a partida durante o intervalo
+
+        // Pausa a partida e DISPERSA os jogadores: eles se afastam do gol
+        // (em vez de ficarem amontoados nele) durante o intervalo.
+        matchManager.Disperse(true);
+        DropBallFromHands();
+
         yield return new WaitForSeconds(resetDelay);
 
         SetMessage("");
-
-        if (UseMatch)
-        {
-            _roundResolved = false;
-            matchManager.ResetForNextRound();   // recoloca bola + jogadores e dá a posse ao inimigo
-            _matchState = MatchState.ShotInFlight;
-        }
-        else
-        {
-            ResetBall();
-            ResetAttacker();
-            yield return new WaitForSeconds(preShotDelay);
-            StartCoroutine(BeginShotSequence());
-        }
+        _roundResolved = false;
+        matchManager.ResetForNextRound();   // recoloca bola + jogadores e dá a posse ao inimigo
+        _matchState = MatchState.Live;
     }
 
-    private IEnumerator BeginShotSequence()
+    /// <summary>Solta a bola das mãos do goleiro (caso tenha sido agarrada) antes do reset.</summary>
+    private void DropBallFromHands()
     {
-        _matchState = MatchState.BetweenShots;
-        yield return new WaitForSeconds(0.5f);
-        if (enemyShooter != null) enemyShooter.BeginRun();
-    }
-
-    // -------------------------------------------------------------------------
-    // Reset
-    // -------------------------------------------------------------------------
-    private void ResetBall()
-    {
-        if (ball == null) return;
-
         if (leftHand  != null) leftHand.ForceDrop();
         if (rightHand != null) rightHand.ForceDrop();
-        ball.transform.SetParent(null);
-
-        // Para a física e reposiciona enquanto kinematic
-        ball.isKinematic = true;
-        ball.transform.position = ballSpawnPoint != null ? ballSpawnPoint.position : Vector3.zero;
-        ball.transform.rotation = Quaternion.identity;
-
-        // Só agora (não-kinematic) é seguro zerar as velocidades
-        ball.isKinematic = false;
-        ball.linearVelocity = Vector3.zero;
-        ball.angularVelocity = Vector3.zero;
-    }
-
-    private void ResetAttacker()
-    {
-        if (enemyShooter == null || attackerSpawnPoint == null) return;
-        enemyShooter.ResetToIdle(attackerSpawnPoint.position);
     }
 
     // -------------------------------------------------------------------------

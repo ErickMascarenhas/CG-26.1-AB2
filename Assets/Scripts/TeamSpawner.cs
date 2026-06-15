@@ -18,8 +18,12 @@ using UnityEngine.AI;
 /// </summary>
 public class TeamSpawner : MonoBehaviour
 {
-    [Header("Prefab")]
-    [Tooltip("Modelo simples de jogador (com Renderer). NavMeshAgent/SoccerPlayer são adicionados se faltarem.")]
+    [Header("Prefabs por time (um modelo por time)")]
+    [Tooltip("Modelo do time ALIADO (ex.: prefab 'Attacker'). NavMeshAgent/SoccerPlayer são adicionados se faltarem.")]
+    public GameObject allyPrefab;
+    [Tooltip("Modelo do time INIMIGO (ex.: prefab 'Attacker Enemy'). Se vazio, usa o allyPrefab.")]
+    public GameObject enemyPrefab;
+    [Tooltip("Fallback legado: usado se allyPrefab/enemyPrefab estiverem vazios.")]
     public GameObject playerPrefab;
 
     [Header("Campo")]
@@ -37,11 +41,15 @@ public class TeamSpawner : MonoBehaviour
     [Tooltip("Se você já tem um modelo de goleiro inimigo na cena, arraste aqui. Senão, é instanciado do prefab.")]
     public GameObject enemyGoalkeeper;
 
-    [Header("Cores dos times (camisa)")]
+    [Header("Tingimento (opcional)")]
+    [Tooltip("Se DESLIGADO (padrão): cada time usa o material do próprio modelo — sem mudar cor de camisa/pele. Ligue só se usar o mesmo modelo para os dois times.")]
+    public bool tintTeams = false;
+
+    [Header("Cores dos times (camisa) — usado só se 'Tint Teams' ligado")]
     public Color allyColor = new Color(0.2f, 0.4f, 1f);   // azul
     public Color enemyColor = new Color(1f, 0.25f, 0.2f); // vermelho
 
-    [Header("Tons de pele (sorteados por jogador)")]
+    [Header("Tons de pele (sorteados) — usado só se 'Tint Teams' ligado")]
     public Color[] skinTones = new[]
     {
         new Color(0.96f, 0.80f, 0.69f),
@@ -62,11 +70,20 @@ public class TeamSpawner : MonoBehaviour
     /// Instancia ambos os times. Retorna true se ok.
     /// O goleiro aliado (humano) NÃO é instanciado.
     /// </summary>
+    /// <summary>Prefab efetivo de um time (com fallback para o playerPrefab legado).</summary>
+    private GameObject PrefabFor(Team team)
+    {
+        GameObject specific = team == Team.Ally ? allyPrefab : enemyPrefab;
+        if (specific != null) return specific;
+        if (allyPrefab != null) return allyPrefab; // se só o aliado foi atribuído, usa-o p/ ambos
+        return playerPrefab;
+    }
+
     public bool SpawnTeams()
     {
-        if (playerPrefab == null)
+        if (PrefabFor(Team.Ally) == null || PrefabFor(Team.Enemy) == null)
         {
-            Debug.LogError("[TeamSpawner] 'Player Prefab' não atribuído. Não é possível spawnar times.");
+            Debug.LogError("[TeamSpawner] Prefabs de time não atribuídos (Ally Prefab / Enemy Prefab). Não é possível spawnar times.");
             return false;
         }
 
@@ -97,7 +114,7 @@ public class TeamSpawner : MonoBehaviour
             if (p != null) enemyPlayers.Add(p);
         }
 
-        Debug.Log($"[TeamSpawner] Spawn ok. Aliados={allyPlayers.Count}, Inimigos={enemyPlayers.Count} (+1 GK inimigo).");
+        Debug.Log($"[TeamSpawner] Spawn ok. Aliados={allyPlayers.Count}, Inimigos={enemyPlayers.Count} (+1 GK inimigo). Tint={tintTeams}.");
         return true;
     }
 
@@ -108,7 +125,7 @@ public class TeamSpawner : MonoBehaviour
         if (NavMesh.SamplePosition(pos, out var hit, 5f, NavMesh.AllAreas))
             spawnPos = hit.position;
 
-        var go = Instantiate(playerPrefab, spawnPos, Quaternion.identity, transform);
+        var go = Instantiate(PrefabFor(team), spawnPos, Quaternion.identity, transform);
 
         var agent = go.GetComponent<NavMeshAgent>();
         if (agent == null) agent = go.AddComponent<NavMeshAgent>();
@@ -120,10 +137,20 @@ public class TeamSpawner : MonoBehaviour
 
         var sp = go.GetComponent<SoccerPlayer>();
         if (sp == null) sp = go.AddComponent<SoccerPlayer>();
-        Color skin = (skinTones != null && skinTones.Length > 0)
-            ? skinTones[Random.Range(0, skinTones.Length)]
-            : new Color(0.86f, 0.66f, 0.52f);
-        sp.Init(team, role, spawnPos, color, skin, playerSpeed);
+
+        if (tintTeams)
+        {
+            // Modo legado: mesmo modelo p/ os dois times, tingido por instância.
+            Color skin = (skinTones != null && skinTones.Length > 0)
+                ? skinTones[Random.Range(0, skinTones.Length)]
+                : new Color(0.86f, 0.66f, 0.52f);
+            sp.Init(team, role, spawnPos, color, skin, playerSpeed);
+        }
+        else
+        {
+            // Um modelo por time: NÃO mexe em cor de camisa/pele (cada prefab já tem a sua).
+            sp.InitNoTint(team, role, spawnPos, playerSpeed);
+        }
 
         return sp;
     }
@@ -137,11 +164,14 @@ public class TeamSpawner : MonoBehaviour
             return;
         }
         // Instancia um goleiro estático simples (sem NavMeshAgent ativo / sem IA)
-        var go = Instantiate(playerPrefab, gkPos, Quaternion.identity, transform);
+        var go = Instantiate(PrefabFor(Team.Enemy), gkPos, Quaternion.identity, transform);
         var agent = go.GetComponent<NavMeshAgent>();
         if (agent != null) agent.enabled = false; // estático
-        var sp = go.GetComponent<SoccerPlayer>();
-        if (sp != null) sp.SetTeamColor(enemyColor);
+        if (tintTeams)
+        {
+            var sp = go.GetComponent<SoccerPlayer>();
+            if (sp != null) sp.SetTeamColor(enemyColor);
+        }
         go.name = "Enemy_Goalkeeper(static)";
         enemyGoalkeeper = go;
     }

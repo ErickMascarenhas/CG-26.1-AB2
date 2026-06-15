@@ -135,7 +135,7 @@ Toda a lógica está em `Assets/Scripts/`. Visão por responsabilidade e **estad
 | `ShotIndicator.cs` | Indicador de mira no céu antes do chute. | ✅ Pronto |
 | `CrowdMember.cs` / `CrowdManager.cs` | Torcida em PNG: parte comemora em gol, parte em defesa. | ✅ Pronto (montar na cena) |
 | `GameManager.cs` | Placar, detecção de gol/defesa no gol do jogador, áudio, feedback, ciclo de partida. | ✅ Pronto |
-| `EnemyShooter.cs` | **Legado.** Atacante único da Fase 3 (anterior à simulação completa). Mantido como fallback; ignorado quando há `MatchManager`. | ⚠️ Legado |
+| ~~`EnemyShooter.cs`~~ | **Removido.** Atacante único legado da Fase 3 — apagado junto com o modo de jogo de atacante único (o `GameManager` agora é só ecossistema). | 🗑️ Removido |
 
 ### Fluxo de uma jogada
 
@@ -185,12 +185,32 @@ Baseado no plano técnico do projeto.
 
 **Parte 2 — Ecossistema completo**
 - [x] Fase 5 — Port da IA (4-3-3, perseguir/barreira, posse) → `AISoccerBrain`
-- [x] Fase 6 — 21 agentes + time-slicing + nerf do time aliado
+- [x] Fase 6 — 20 jogadores de linha (10+10) + time-slicing + nerf do time aliado
 - [x] Fase 7 (código) — Sons, indicador de mira, ataque scriptado, torcida
-- [ ] **Fase 7 (assets)** — Integrar **animações** (idle / andar / chute) nos modelos via Animator
-- [ ] Espalhar os PNGs da torcida na arquibancada e ligar ao `CrowdManager`
-- [ ] Passe de **otimização** no headset (medir 72 fps com 21 agentes)
+- [x] **Fase 7 (IA)** — Anti-agrupamento: bloco coeso + lanes por papel + separação; **dispersão pós-gol**
+- [x] **Fase 7 (modelos)** — Um modelo por time (`Attacker` / `Attacker Enemy`), sem tingir
+- [x] **Fase 7 (animações)** — Animator gerado por ferramenta de Editor (idle/correr/chute/passe)
+- [x] **Fase 7 (torcida)** — `CrowdSpawner` procedural + materiais via Editor
+- [ ] Passe de **otimização** no headset (medir 72 fps com os 20 agentes)
 - [ ] Ajuste final de **dificuldade** e _feel_
+
+> **Ferramentas de Editor (um clique):**
+> - **Tools → Goalkeeper VR → Build Player Animators** — ajusta as clips Mixamo (loop em idle/jog),
+>   cria `Assets/Animations/PlayerController.controller` (Idle⇄Run via `IsRunning`; `Shoot`/`Pass` por trigger)
+>   e atribui o Animator + Avatar nos prefabs `Attacker` e `Attacker Enemy`.
+> - **Tools → Goalkeeper VR → Build Crowd** — gera `CrowdIdle.mat` / `CrowdCheer.mat` a partir dos PNGs e
+>   liga no `CrowdSpawner` da cena.
+>
+> **Montagem da torcida:** adicione um GameObject com **`CrowdSpawner`** no centro do campo, rode *Build Crowd*,
+> ajuste `rows`/`rowRise`/`standOffset` e dê Play (ou *Spawn Now* no menu de contexto). Ele registra os
+> torcedores no `CrowdManager` automaticamente.
+>
+> **Anti-agrupamento / dispersão:** os parâmetros ficam no `MatchManager` → *Formação (anti-agrupamento)*
+> (`blockLateralShift`, `blockDepthShift`, `separationRadius`, `separationStrength`) e *Dispersão pós-gol*
+> (`disperseDistance`). A dispersão dispara sozinha no intervalo após cada gol/defesa.
+>
+> **Dois modelos:** no `TeamSpawner`, preencha **Ally Prefab** = `Attacker` e **Enemy Prefab** = `Attacker Enemy`
+> e deixe **Tint Teams** desligado (cada modelo já tem sua aparência). O campo legado *Player Prefab* vira fallback.
 
 ---
 
@@ -230,7 +250,7 @@ Tudo exposto no Inspector. Os que mais mudam o _feel_:
 
 - **Espalmar não desvia fisicamente:** o colisor da palma é _trigger_, então o evento `OnParry` dispara mas a bola não é fisicamente defletida. Para defesa física real, adicionar um colisor sólido na palma (a definir).
 - **Performance não medida no headset:** os 21 agentes + física + hand tracking precisam de medição de 72 fps no Quest. Use o FPS do `VRDebugConsole`; ajuste `brainSliceInterval`/`activeBrainCount` e LOD.
-- **Animações ainda não ligadas:** os FBX existem, falta montar o Animator (idle/andar/chute) e referenciar no `SoccerPlayer`.
+- **Animações:** montadas via **Tools → Goalkeeper VR → Build Player Animators** (idle/correr/chute/passe). Reexecute se trocar os FBX ou os prefabs.
 - **Blocos grandes não 100% testados em build:** a simulação de partida e o ataque scriptado nasceram de iterações sem teste em headset a cada passo — esperar ajuste de _feel_.
 
 ---
@@ -245,3 +265,40 @@ Tudo exposto no Inspector. Os que mais mudam o _feel_:
 ---
 
 _Projeto desenvolvido na Unity 6 (URP) para Meta Quest 3S, com hand tracking via OpenXR._
+
+---
+
+## Passo a passo — Executar no Meta Quest 3S
+
+Guia completo de deploy: da Unity ao jogo rodando no headset, usando o **Meta Quest Developer Hub (MQDH)**.
+
+### 1. Trocar a plataforma para Android (na Unity)
+
+1. Abra **File → Build Profiles** (na Unity 6 o antigo "Build Settings" virou **Build Profiles**).
+2. Na lista de plataformas, selecione **Android**.
+3. Clique em **Switch Platform** e aguarde a Unity reimportar os assets para Android (pode demorar na primeira vez).
+
+> Antes do primeiro build, rode também **Tools → Goalkeeper VR → Setup XR Project** e confirme em **Project Settings → XR Plug-in Management → Android** que **OpenXR** está marcado com os feature groups **Meta Quest Support** + **Hand Tracking Subsystem**.
+
+### 2. Gerar o `.apk`
+
+1. Ainda em **Build Profiles**, com **Android** já selecionado, confirme que a cena `Assets/Scenes/Goalkeeper.unity` está na lista de cenas do build (marcada).
+2. Clique em **Build**.
+3. Escolha a **pasta selecionada** do projeto como destino e salve o `.apk` lá.
+4. Aguarde a compilação terminar — o arquivo `.apk` ficará na pasta escolhida.
+
+### 3. Instalar e iniciar com o Meta Quest Developer Hub
+
+> Pré-requisito: tenha baixado e instalado o **Meta Quest Developer Hub (MQDH)** no computador/notebook.
+
+1. Abra o **Meta Quest Developer Hub**.
+2. **Conecte o computador ao óculos VR** (via cabo USB-C; aceite o aviso de depuração/USB que aparece dentro do headset na primeira conexão).
+3. Vá em **Device Manager** e clique em **Add build** (ou arraste o `.apk`) para **enviar o `.apk`** ao Quest.
+4. Quando o envio terminar, clique em **Launch app** para **inicializar o jogo** no headset.
+5. Depois que o jogo abrir, o **óculos já pode ser desconectado** do computador — ele roda standalone.
+
+### 4. A cada atualização
+
+Repita o ciclo **Build (`.apk`) → Add build → Launch app** sempre que fizer mudanças no projeto e quiser testá-las no headset.
+
+> No headset: largue os controles (o hand tracking só ativa sem controles), abra os braços e feche os punhos para calibrar o gol — a partida começa em seguida.
