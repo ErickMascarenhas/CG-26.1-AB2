@@ -194,12 +194,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f06527f3f8494694fab69b9034d2975c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  allyPrefab: {fileID: 0}
+  enemyPrefab: {fileID: 0}
   playerPrefab: {fileID: 8284396837630338586, guid: d09cd15eab304a244805bf190ece160d, type: 3}
   fieldCenter: {fileID: 15904600}
   fieldLength: 104
   fieldWidth: 67.5
   allyAttacksPositiveZ: 1
   enemyGoalkeeper: {fileID: 6317989774025116279}
+  tintTeams: 0
   allyColor: {r: 0.2, g: 0.4, b: 1, a: 1}
   enemyColor: {r: 1, g: 0.25, b: 0.2, a: 1}
   skinTones:
@@ -1494,6 +1497,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: XR Device Simulator
       objectReference: {fileID: 0}
+    - target: {fileID: 6598815579406187037, guid: 18ddb545287c546e19cc77dc9fbb2189, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -2166,6 +2173,11 @@ MonoBehaviour:
   shotIndicator: {fileID: 201870916}
   shootWindup: 0.6
   dribbleEvadeStrength: 2
+  blockLateralShift: 0.45
+  blockDepthShift: 3
+  separationRadius: 2.4
+  separationStrength: 1.2
+  disperseDistance: 6
   sfx: {fileID: 564718696}
   kickClip: {fileID: 8300000, guid: 9a978b289fcae644991aa8f1ee121b7e, type: 3}
   passClip: {fileID: 8300000, guid: ffb88a6ee7c820140be0ef96cc046c26, type: 3}
@@ -2217,18 +2229,6 @@ MonoBehaviour:
         m_TargetAssemblyTypeName: GameManager, Assembly-CSharp
         m_MethodName: StartMatch
         m_Mode: 1
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
-      - m_Target: {fileID: 5792453689274569742}
-        m_TargetAssemblyTypeName: EnemyShooter, Assembly-CSharp
-        m_MethodName: OnGoalCalibratedHandler
-        m_Mode: 0
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
           m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
@@ -2442,10 +2442,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   matchManager: {fileID: 868067088}
-  enemyShooter: {fileID: 5792453689274569742}
   ball: {fileID: 453831613}
-  ballSpawnPoint: {fileID: 1947613903}
-  attackerSpawnPoint: {fileID: 1911576441}
   leftHand: {fileID: 1828856714}
   rightHand: {fileID: 698595780}
   goalLine: {fileID: 706735947}
@@ -2462,8 +2459,6 @@ MonoBehaviour:
   clipCrowd: {fileID: 0}
   clipWhistle: {fileID: 8300000, guid: af8b3e45e967d41428266ab00700ce5a, type: 3}
   resetDelay: 3
-  preShotDelay: 1
-  shotTimeout: 4
   saveFlash: {fileID: 0}
   flashDuration: 0.25
   crowdManager: {fileID: 0}
@@ -2765,6 +2760,10 @@ PrefabInstance:
     - target: {fileID: -6689036041284674117, guid: 1d494437f7466ec449b977f45bbf88a1, type: 3}
       propertyPath: m_Name
       value: Stadium
+      objectReference: {fileID: 0}
+    - target: {fileID: -6689036041284674117, guid: 1d494437f7466ec449b977f45bbf88a1, type: 3}
+      propertyPath: m_IsActive
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: -5841440638406994836, guid: 1d494437f7466ec449b977f45bbf88a1, type: 3}
       propertyPath: m_IsActive
@@ -3123,7 +3122,6 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 453831615}
-  - {fileID: 5792453689274569741}
   - {fileID: 4332728934282603658}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -3845,83 +3843,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1677291053}
   m_LocalEulerAnglesHint: {x: 0, y: -180, z: 0}
---- !u!1001 &5792453689274569740
-PrefabInstance:
-  m_ObjectHideFlags: 0
-  serializedVersion: 2
-  m_Modification:
-    serializedVersion: 3
-    m_TransformParent: {fileID: 1677291053}
-    m_Modifications:
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalPosition.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalPosition.z
-      value: 63
-      objectReference: {fileID: 0}
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalRotation.w
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalRotation.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalRotation.y
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalRotation.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.y
-      value: 180
-      objectReference: {fileID: 0}
-    - target: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 8284396837630338586, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_Name
-      value: Attacker
-      objectReference: {fileID: 0}
-    - target: {fileID: 8284396837630338586, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-      propertyPath: m_IsActive
-      value: 0
-      objectReference: {fileID: 0}
-    m_RemovedComponents: []
-    m_RemovedGameObjects: []
-    m_AddedGameObjects: []
-    m_AddedComponents: []
-  m_SourcePrefab: {fileID: 100100000, guid: d09cd15eab304a244805bf190ece160d, type: 3}
---- !u!4 &5792453689274569741 stripped
-Transform:
-  m_CorrespondingSourceObject: {fileID: 4186405012123829910, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-  m_PrefabInstance: {fileID: 5792453689274569740}
-  m_PrefabAsset: {fileID: 0}
---- !u!114 &5792453689274569742 stripped
-MonoBehaviour:
-  m_CorrespondingSourceObject: {fileID: 4024885183168776484, guid: d09cd15eab304a244805bf190ece160d, type: 3}
-  m_PrefabInstance: {fileID: 5792453689274569740}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a50599a32dfab7e4897d529ae98da3d4, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!1 &6317989774025116279
 GameObject:
   m_ObjectHideFlags: 0
