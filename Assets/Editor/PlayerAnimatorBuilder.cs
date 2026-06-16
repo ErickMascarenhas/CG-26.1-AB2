@@ -225,7 +225,7 @@ public static class PlayerAnimatorBuilder
             var sp = root.GetComponent<SoccerPlayer>();
             if (sp != null) sp.animator = animator;
 
-            PrefabUtility.SavePrefabAsset(root);
+            PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
             return true;
         }
         finally
