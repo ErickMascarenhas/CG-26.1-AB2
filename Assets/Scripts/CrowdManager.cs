@@ -29,12 +29,11 @@ public class CrowdManager : MonoBehaviour
     [Tooltip("Fração do grupo que realmente comemora (nem todos ao mesmo tempo).")]
     public float participation = 0.7f;
 
+    private bool _allDisabled;
+
     private void Start()
     {
-        if (members == null || members.Count == 0)
-        {
-            members = new List<CrowdMember>(GetComponentsInChildren<CrowdMember>(true));
-        }
+        EnsureMembers();
 
         // Divide aleatoriamente em grupo GOL / DEFESA
         foreach (var m in members)
@@ -47,11 +46,27 @@ public class CrowdManager : MonoBehaviour
         Debug.Log($"[CrowdManager] {members.Count} torcedores prontos.");
     }
 
+    private void EnsureMembers()
+    {
+        if (members == null || members.Count == 0)
+            members = new List<CrowdMember>(GetComponentsInChildren<CrowdMember>(true));
+    }
+
+    /// <summary>Liga/desliga TODA a torcida (usado pelo modo de performance).</summary>
+    public void SetActiveAll(bool on)
+    {
+        EnsureMembers();
+        foreach (var m in members)
+            if (m != null) m.gameObject.SetActive(on);
+        _allDisabled = !on;
+        Debug.Log($"[CrowdManager] Torcida {(on ? "ligada" : "desligada")}.");
+    }
+
     /// <summary>Comemoração de GOL (gol sofrido) — parte da torcida do grupo GOL.</summary>
-    public void CelebrateGoal() => StartCoroutine(Celebrate(false));
+    public void CelebrateGoal() { if (!_allDisabled) StartCoroutine(Celebrate(false)); }
 
     /// <summary>Comemoração de DEFESA — parte da torcida do grupo DEFESA.</summary>
-    public void CelebrateSave() => StartCoroutine(Celebrate(true));
+    public void CelebrateSave() { if (!_allDisabled) StartCoroutine(Celebrate(true)); }
 
     private IEnumerator Celebrate(bool saveGroup)
     {

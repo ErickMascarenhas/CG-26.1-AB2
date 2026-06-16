@@ -92,6 +92,7 @@ Dá para jogar e testar tudo no PC, sem Quest:
 - **Áudio** — chute, passe, defesa, gol, apito e ambiente.
 - **Console de debug em VR** com FPS, para diagnóstico dentro do headset.
 - **Modelo de jogador universal** com 2 cores configuráveis (camisa e pele) por instância.
+- **Modo de performance** — um toggle opcional que ativa a IA de apenas 3 zagueiros aliados e 1 atacante inimigo e desliga a torcida, para rodar leve em hardware mais limitado.
 
 ---
 

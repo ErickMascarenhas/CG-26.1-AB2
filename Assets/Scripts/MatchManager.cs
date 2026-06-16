@@ -66,6 +66,15 @@ public class MatchManager : MonoBehaviour
     [Tooltip("Quão longe o dribleador inimigo desvia lateralmente do defensor mais próximo.")]
     public float dribbleEvadeStrength = 2.0f;
 
+    [Header("Modo de performance (leve)")]
+    [Tooltip("Liga o modo leve: só os zagueiros aliados (até N) e 1 atacante inimigo têm IA; " +
+             "o resto fica parado e a torcida é desligada.")]
+    public bool performanceMode = false;
+    [Tooltip("Máximo de zagueiros aliados com IA ativa no modo de performance.")]
+    public int performanceMaxAllyDefenders = 3;
+    [Tooltip("Torcida a desligar no modo de performance.")]
+    public CrowdManager crowdManager;
+
     [Header("Modo pênalti")]
     [Range(0f, 1f)]
     [Tooltip("Chance de um pênalti acontecer a cada gol/defesa.")]
@@ -110,6 +119,10 @@ public class MatchManager : MonoBehaviour
     private bool _penaltyMode;            // jogada de pênalti em andamento
     private SoccerPlayer _penaltyTaker;   // cobrador do pênalti
 
+    // Modo de performance: conjunto de agentes com IA ativa
+    private SoccerPlayer _perfEnemy;                         // o único atacante inimigo ativo
+    private readonly List<SoccerPlayer> _perfAllies = new List<SoccerPlayer>(); // zagueiros aliados ativos
+
     // -------------------------------------------------------------------------
     // Setup
     // -------------------------------------------------------------------------
@@ -131,6 +144,55 @@ public class MatchManager : MonoBehaviour
         IgnoreAllyBallCollisions(); // aliados nunca colidem fisicamente com a bola
         return true;
     }
+
+    /// <summary>
+    /// Seleciona o conjunto reduzido de agentes com IA (até N zagueiros aliados + 1
+    /// atacante inimigo), congela o resto e desliga a torcida. Idempotente.
+    /// </summary>
+    private void SetupPerformanceMode()
+    {
+        if (!performanceMode) return;
+
+        // 1 atacante inimigo (Forward; se não houver, o primeiro inimigo).
+        _perfEnemy = FirstOfRole(spawner.enemyPlayers, Role.Forward);
+        if (_perfEnemy == null && spawner.enemyPlayers.Count > 0)
+            _perfEnemy = spawner.enemyPlayers[0];
+
+        // Até N zagueiros aliados.
+        _perfAllies.Clear();
+        foreach (var p in spawner.allyPlayers)
+        {
+            if (p == null) continue;
+            if (p.role == Role.Defender && _perfAllies.Count < performanceMaxAllyDefenders)
+                _perfAllies.Add(p);
+        }
+        // Se faltar zagueiro, completa com quaisquer aliados.
+        if (_perfAllies.Count < performanceMaxAllyDefenders)
+            foreach (var p in spawner.allyPlayers)
+            {
+                if (p == null || _perfAllies.Contains(p)) continue;
+                _perfAllies.Add(p);
+                if (_perfAllies.Count >= performanceMaxAllyDefenders) break;
+            }
+
+        // Congela todos os inativos.
+        foreach (var p in _all)
+            if (p != null && !IsActivePerf(p)) p.StopMoving();
+
+        // Desliga a torcida.
+        if (crowdManager != null) crowdManager.SetActiveAll(false);
+    }
+
+    private SoccerPlayer FirstOfRole(List<SoccerPlayer> list, Role role)
+    {
+        if (list == null) return null;
+        foreach (var p in list) if (p != null && p.role == role) return p;
+        return null;
+    }
+
+    /// <summary>No modo de performance, só o atacante inimigo escolhido e os zagueiros ativos têm IA.</summary>
+    private bool IsActivePerf(SoccerPlayer p)
+        => !performanceMode || p == _perfEnemy || _perfAllies.Contains(p);
 
     /// <summary>
     /// Faz a bola IGNORAR fisicamente todos os colisores dos jogadores aliados.
@@ -160,6 +222,9 @@ public class MatchManager : MonoBehaviour
         // Jogadores para casa
         foreach (var p in _all) if (p != null) p.WarpTo(p.HomePosition);
 
+        // Modo leve: seleciona o conjunto ativo, congela o resto e desliga a torcida.
+        SetupPerformanceMode();
+
         // Bola no centro
         Vector3 center = spawner.fieldCenter != null ? spawner.fieldCenter.position : transform.position;
         if (ball != null)
@@ -175,7 +240,11 @@ public class MatchManager : MonoBehaviour
         // Dá a posse ao atacante inimigo mais próximo do centro
         _owner = null; _lastKicker = null; _grabCooldownTimer = 0f; _ownerDecisionTimer = 0f;
         _penaltyMode = false; _penaltyTaker = null;
-        var starter = NearestOfTeam(Team.Enemy, center);
+
+        // Posse inicial: o atacante ativo (modo leve) ou o inimigo mais próximo do centro.
+        var starter = performanceMode && _perfEnemy != null
+            ? _perfEnemy
+            : NearestOfTeam(Team.Enemy, center);
         if (starter != null) GivePossession(starter);
 
         _playing = true;
@@ -193,7 +262,11 @@ public class MatchManager : MonoBehaviour
         Vector3 ballPos = ball.transform.position;
         if (_owner != null && !_shooting) DecideOwner();
         foreach (var p in _all)
-            if (p != null && p != _owner) DecideOffBall(p, ballPos);
+        {
+            if (p == null || p == _owner) continue;
+            if (!IsActivePerf(p)) continue; // modo leve: inativos não decidem
+            DecideOffBall(p, ballPos);
+        }
     }
 
     public void SetPlaying(bool value) => _playing = value;
@@ -227,8 +300,10 @@ public class MatchManager : MonoBehaviour
         Vector3 spot = goal + toField * penaltyDistance;
         spot.y = 0f;
 
-        // Escolhe o cobrador: atacante inimigo mais próximo do ponto.
-        _penaltyTaker = NearestOfTeam(Team.Enemy, spot);
+        // Escolhe o cobrador: o atacante ativo (modo leve) ou o inimigo mais próximo do ponto.
+        _penaltyTaker = performanceMode && _perfEnemy != null
+            ? _perfEnemy
+            : NearestOfTeam(Team.Enemy, spot);
 
         // Bola no ponto de pênalti, conduzida pelo cobrador.
         if (ball != null)
@@ -306,18 +381,27 @@ public class MatchManager : MonoBehaviour
 
         if (_owner == null)
         {
-            // Bola livre: SÓ o time INIMIGO pode pegar. Aliados nunca tocam na bola
-            // (mas continuam perseguindo/se movendo normalmente).
-            SoccerPlayer nearest = null; float best = float.MaxValue;
-            foreach (var p in spawner.enemyPlayers)
+            // Bola livre: SÓ o time INIMIGO pode pegar. Aliados nunca tocam na bola.
+            // No modo leve, apenas o atacante inimigo ATIVO pode recuperar a bola.
+            if (performanceMode && _perfEnemy != null)
             {
-                if (p == null) continue;
-                if (p == _lastKicker && _grabCooldownTimer > 0f) continue;
-                float d = Vector3.Distance(p.transform.position, ballPos);
-                if (d < best) { best = d; nearest = p; }
+                bool blocked = _perfEnemy == _lastKicker && _grabCooldownTimer > 0f;
+                if (!blocked && Vector3.Distance(_perfEnemy.transform.position, ballPos) <= controlRadius)
+                    GivePossession(_perfEnemy);
             }
-            if (nearest != null && best <= controlRadius)
-                GivePossession(nearest);
+            else
+            {
+                SoccerPlayer nearest = null; float best = float.MaxValue;
+                foreach (var p in spawner.enemyPlayers)
+                {
+                    if (p == null) continue;
+                    if (p == _lastKicker && _grabCooldownTimer > 0f) continue;
+                    float d = Vector3.Distance(p.transform.position, ballPos);
+                    if (d < best) { best = d; nearest = p; }
+                }
+                if (nearest != null && best <= controlRadius)
+                    GivePossession(nearest);
+            }
         }
         else
         {
@@ -374,6 +458,16 @@ public class MatchManager : MonoBehaviour
         {
             var p = _all[i];
             if (p == null || p == _owner) continue;
+
+            // Modo leve: só o conjunto reduzido (zagueiros aliados + atacante inimigo) decide.
+            if (!IsActivePerf(p)) continue;
+
+            // Modo leve: o atacante inimigo busca ativamente a bola livre.
+            if (performanceMode && p == _perfEnemy && _owner == null)
+            {
+                p.MoveTo(ballPos);
+                continue;
+            }
 
             bool active = IsAmongNearest(p, ballPos, activeBrainCount);
             bool due = active || ((_frame + i) % Mathf.Max(1, brainSliceInterval) == 0);
@@ -498,7 +592,10 @@ public class MatchManager : MonoBehaviour
         bool teamHasBall = _owner != null && _owner.team == p.team;
         Vector3 ownGoal = p.team == Team.Enemy ? GoalPos(enemyGoalCenter) : GoalPos(playerGoalCenter);
         Vector3 fieldCenter = spawner.fieldCenter != null ? spawner.fieldCenter.position : transform.position;
+
+        // No modo leve, o "time" para perseguição/separação são só os aliados ATIVOS.
         var team = p.team == Team.Ally ? spawner.allyPlayers : spawner.enemyPlayers;
+        if (performanceMode && p.team == Team.Ally) team = _perfAllies;
 
         // Time sem a bola: os N mais próximos perseguem; resto, formação.
         // Equilíbrio defensivo: se a bola está no nosso terço, mais defensores pressionam.
