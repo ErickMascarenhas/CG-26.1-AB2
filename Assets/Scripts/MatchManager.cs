@@ -66,6 +66,15 @@ public class MatchManager : MonoBehaviour
     [Tooltip("Quão longe o dribleador inimigo desvia lateralmente do defensor mais próximo.")]
     public float dribbleEvadeStrength = 2.0f;
 
+    [Header("Modo pênalti")]
+    [Range(0f, 1f)]
+    [Tooltip("Chance de um pênalti acontecer a cada gol/defesa.")]
+    public float penaltyChance = 0.10f;
+    [Tooltip("Distância (m) do gol do jogador até o ponto de pênalti.")]
+    public float penaltyDistance = 9f;
+    [Tooltip("Distância (m) que os outros jogadores ficam assistindo (atrás da bola).")]
+    public float penaltyWatchDistance = 6f;
+
     [Header("Formação (anti-agrupamento)")]
     [Tooltip("Quanto o BLOCO desliza lateralmente (X) rumo à bola (0..1). Menor = mais espalhado.")]
     [Range(0f, 1f)] public float blockLateralShift = 0.45f;
@@ -98,6 +107,8 @@ public class MatchManager : MonoBehaviour
     private bool _playing;
     private bool _spawned;
     private bool _shooting;               // windup de chute em andamento
+    private bool _penaltyMode;            // jogada de pênalti em andamento
+    private SoccerPlayer _penaltyTaker;   // cobrador do pênalti
 
     // -------------------------------------------------------------------------
     // Setup
@@ -116,7 +127,29 @@ public class MatchManager : MonoBehaviour
         if (ball == null) Debug.LogError("[MatchManager] 'Ball' não atribuída.");
         if (playerGoalCenter == null || enemyGoalCenter == null)
             Debug.LogError("[MatchManager] Centros de gol não atribuídos.");
+
+        IgnoreAllyBallCollisions(); // aliados nunca colidem fisicamente com a bola
         return true;
+    }
+
+    /// <summary>
+    /// Faz a bola IGNORAR fisicamente todos os colisores dos jogadores aliados.
+    /// Assim um chute/bola solta nunca bate num aliado — só o time inimigo
+    /// (e suas mãos) interage com a bola.
+    /// </summary>
+    private void IgnoreAllyBallCollisions()
+    {
+        if (ball == null) return;
+        Collider ballCol = ball.GetComponent<Collider>();
+        if (ballCol == null) ballCol = ball.GetComponentInChildren<Collider>();
+        if (ballCol == null) return;
+
+        foreach (var p in spawner.allyPlayers)
+        {
+            if (p == null) continue;
+            foreach (var c in p.GetComponentsInChildren<Collider>())
+                if (c != null) Physics.IgnoreCollision(ballCol, c, true);
+        }
     }
 
     /// <summary>Coloca tudo na formação e dá a bola ao inimigo (gera ataque ao jogador).</summary>
@@ -141,18 +174,92 @@ public class MatchManager : MonoBehaviour
 
         // Dá a posse ao atacante inimigo mais próximo do centro
         _owner = null; _lastKicker = null; _grabCooldownTimer = 0f; _ownerDecisionTimer = 0f;
+        _penaltyMode = false; _penaltyTaker = null;
         var starter = NearestOfTeam(Team.Enemy, center);
         if (starter != null) GivePossession(starter);
 
         _playing = true;
+
+        // Movimento IMEDIATO: todos recebem um alvo já no primeiro frame.
+        ForceAllDecisions();
+
         Debug.Log("[MatchManager] Kickoff — inimigo com a posse.");
+    }
+
+    /// <summary>Roda uma decisão para todos os jogadores agora (sem esperar o time-slicing).</summary>
+    private void ForceAllDecisions()
+    {
+        if (ball == null) return;
+        Vector3 ballPos = ball.transform.position;
+        if (_owner != null && !_shooting) DecideOwner();
+        foreach (var p in _all)
+            if (p != null && p != _owner) DecideOffBall(p, ballPos);
     }
 
     public void SetPlaying(bool value) => _playing = value;
     public bool IsPlaying => _playing;
 
-    /// <summary>Reinício após defesa/gol no gol do jogador (chamado pelo GameManager).</summary>
-    public void ResetForNextRound() => KickOff();
+    /// <summary>
+    /// Reinício após defesa/gol. Sorteia o modo PÊNALTI (penaltyChance); senão, kickoff normal.
+    /// Chamado pelo GameManager.
+    /// </summary>
+    public void ResetForNextRound()
+    {
+        if (!EnsureSpawned()) return;
+        if (Random.value < penaltyChance) StartPenalty();
+        else KickOff();
+    }
+
+    // -------------------------------------------------------------------------
+    // Modo pênalti
+    // -------------------------------------------------------------------------
+    /// <summary>Um inimigo cobra do ponto de pênalti; os demais assistem de longe.</summary>
+    private void StartPenalty()
+    {
+        Vector3 goal = GoalPos(playerGoalCenter);
+        Vector3 fieldCenter = spawner.fieldCenter != null ? spawner.fieldCenter.position : transform.position;
+
+        // Direção do gol do jogador para o campo (onde fica a bola do pênalti).
+        Vector3 toField = (fieldCenter - goal); toField.y = 0f;
+        if (toField.sqrMagnitude < 0.01f) toField = Vector3.forward;
+        toField.Normalize();
+
+        Vector3 spot = goal + toField * penaltyDistance;
+        spot.y = 0f;
+
+        // Escolhe o cobrador: atacante inimigo mais próximo do ponto.
+        _penaltyTaker = NearestOfTeam(Team.Enemy, spot);
+
+        // Bola no ponto de pênalti, conduzida pelo cobrador.
+        if (ball != null)
+        {
+            ball.transform.SetParent(null);
+            ball.isKinematic = true;
+            ball.transform.position = spot + Vector3.up * 0.11f;
+            ball.linearVelocity = Vector3.zero;
+            ball.angularVelocity = Vector3.zero;
+        }
+
+        // Posiciona todos: cobrador atrás da bola; o resto assistindo de longe.
+        Vector3 behind = spot + toField * 1.2f;
+        foreach (var p in _all)
+        {
+            if (p == null) continue;
+            if (p == _penaltyTaker) { p.WarpTo(behind); continue; }
+            // Demais ficam num arco atrás do ponto, só observando.
+            Vector3 watch = spot + toField * penaltyWatchDistance + Random.insideUnitSphere * 3f;
+            watch.y = 0f;
+            p.WarpTo(watch);
+            p.StopMoving();
+        }
+
+        _owner = null; _lastKicker = null; _grabCooldownTimer = 0f; _ownerDecisionTimer = 0f;
+        if (_penaltyTaker != null) GivePossession(_penaltyTaker);
+
+        _penaltyMode = true;
+        _playing = true;
+        Debug.Log("[MatchManager] PÊNALTI! Um inimigo vai cobrar.");
+    }
 
     /// <summary>Atualiza a largura do gol do jogador após calibração.</summary>
     public void OnGoalCalibratedHandler(float width) => playerGoalWidth = width;
@@ -167,10 +274,27 @@ public class MatchManager : MonoBehaviour
 
         if (_grabCooldownTimer > 0f) _grabCooldownTimer -= Time.deltaTime;
 
+        if (_penaltyMode) { UpdatePenalty(); UpdateDebug(); return; }
+
         HandlePossession();
         DriveDecisions();
         CheckFieldEvents();
         UpdateDebug();
+    }
+
+    /// <summary>No pênalti, só o cobrador age; os demais ficam assistindo parados.</summary>
+    private void UpdatePenalty()
+    {
+        if (_penaltyTaker == null) { KickOff(); return; }
+
+        if (_owner == _penaltyTaker)
+        {
+            _owner.DribbleBall(ball);
+            _ownerDecisionTimer += Time.deltaTime;
+            if (!_shooting) DecideOwner(); // dentro do alcance → finaliza (windup)
+        }
+
+        CheckFieldEvents(); // trata bola fora (chute torto encerra o pênalti)
     }
 
     // -------------------------------------------------------------------------
@@ -182,9 +306,10 @@ public class MatchManager : MonoBehaviour
 
         if (_owner == null)
         {
-            // Bola livre: jogador mais próximo (exceto lastKicker em cooldown) ganha
+            // Bola livre: SÓ o time INIMIGO pode pegar. Aliados nunca tocam na bola
+            // (mas continuam perseguindo/se movendo normalmente).
             SoccerPlayer nearest = null; float best = float.MaxValue;
-            foreach (var p in _all)
+            foreach (var p in spawner.enemyPlayers)
             {
                 if (p == null) continue;
                 if (p == _lastKicker && _grabCooldownTimer > 0f) continue;
@@ -202,9 +327,11 @@ public class MatchManager : MonoBehaviour
 
             if (_shooting) return; // não rouba durante o windup do chute
 
-            // Roubo: adversário dentro do raio de tackle troca a posse.
-            // Aliados têm raio reduzido (nerf) → inimigo dribla/passa por eles.
+            // Roubo: SÓ inimigos roubam. Como o dono é sempre inimigo, os aliados
+            // nunca tomam a bola — eles pressionam mas passam "através" da jogada.
             Team tacklingTeam = _owner.team == Team.Ally ? Team.Enemy : Team.Ally;
+            if (tacklingTeam != Team.Enemy) return; // dono inimigo → aliados não roubam
+
             float radius = nerf != null ? nerf.GetTackleRadius(tacklingTeam, tackleRadius) : tackleRadius;
             SoccerPlayer tackler = NearestOpponentWithin(_owner.team, ballPos, radius);
             if (tackler != null && _grabCooldownTimer <= 0f)
@@ -314,7 +441,15 @@ public class MatchManager : MonoBehaviour
         _shooting = true;
         shooter.StopMoving();
         shooter.PlayShoot();
-        if (shotIndicator != null) shotIndicator.Show(target);
+
+        // Indicador aparece ANTES do chute (durante o windup) e fica até a jogada
+        // resolver (defesa/gol). Como segurança, some no tempo estimado de voo.
+        if (shotIndicator != null)
+        {
+            float dist = Vector3.Distance(shooter.transform.position, target);
+            float flight = dist / Mathf.Max(kickSpeed, 0.1f);
+            shotIndicator.Show(target, shootWindup + flight + 0.6f);
+        }
 
         yield return new WaitForSeconds(shootWindup);
 
@@ -327,8 +462,15 @@ public class MatchManager : MonoBehaviour
             Debug.Log($"[MatchManager] {shooter.name} CHUTOU.");
         }
 
-        if (shotIndicator != null) shotIndicator.Hide();
+        // NÃO escondemos aqui: o indicador permanece até o GameManager resolver
+        // a jogada (HideShotIndicator) ou o auto-hide pelo tempo de voo.
         _shooting = false;
+    }
+
+    /// <summary>Esconde o indicador de mira (chamado pelo GameManager ao resolver a jogada).</summary>
+    public void HideShotIndicator()
+    {
+        if (shotIndicator != null) shotIndicator.Hide();
     }
 
     /// <summary>Desvia o alvo de drible lateralmente para fugir do defensor mais próximo.</summary>
@@ -374,7 +516,33 @@ public class MatchManager : MonoBehaviour
         Decision d = AISoccerBrain.DecideOffBall(
             p, ballPos, ownGoal, fieldCenter, teamHasBall, isChaser, team,
             blockLateralShift, blockDepthShift, separationRadius, separationStrength);
-        p.MoveTo(d.targetPosition);
+
+        Vector3 moveTarget = d.targetPosition;
+
+        // ANTI-FILA: perseguidores também recebem separação, para cercarem a bola
+        // de ângulos diferentes em vez de correrem enfileirados atrás do portador.
+        if (d.type == DecisionType.ChaseBall)
+            moveTarget = ApplyChaserSeparation(p, team, moveTarget);
+
+        p.MoveTo(moveTarget);
+    }
+
+    /// <summary>Empurra o alvo do perseguidor para longe de companheiros próximos (anti-fila).</summary>
+    private Vector3 ApplyChaserSeparation(SoccerPlayer self, List<SoccerPlayer> team, Vector3 target)
+    {
+        if (team == null) return target;
+        Vector3 push = Vector3.zero;
+        foreach (var mate in team)
+        {
+            if (mate == null || mate == self) continue;
+            Vector3 dvec = self.transform.position - mate.transform.position; dvec.y = 0f;
+            float dist = dvec.magnitude;
+            if (dist > 0.001f && dist < separationRadius)
+                push += dvec.normalized * (separationRadius - dist) / separationRadius;
+        }
+        Vector3 result = target + push * separationStrength;
+        result.y = target.y;
+        return result;
     }
 
     // -------------------------------------------------------------------------

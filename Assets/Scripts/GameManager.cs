@@ -84,6 +84,7 @@ public class GameManager : MonoBehaviour
     private enum MatchState { WaitingCalibration, Live, RoundOver }
     private MatchState _matchState = MatchState.WaitingCalibration;
     private bool _roundResolved = false;
+    private bool _matchStarted = false; // a partida só inicia UMA vez
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -185,6 +186,7 @@ public class GameManager : MonoBehaviour
         PlayAudio(clipCrowd, 0.5f, 0.3f);
         StartCoroutine(ShowFlash());
         if (crowdManager != null) crowdManager.CelebrateSave();
+        if (matchManager != null) matchManager.HideShotIndicator();
         SetMessage("DEFESA!");
         UpdateUI();
         OnSaveCountChanged?.Invoke(_saves);
@@ -202,6 +204,7 @@ public class GameManager : MonoBehaviour
         PlayAudio(clipGoal);
         PlayAudio(clipCrowd, 0.8f, 0.5f);
         if (crowdManager != null) crowdManager.CelebrateGoal();
+        if (matchManager != null) matchManager.HideShotIndicator();
         SetMessage("GOL!");
         UpdateUI();
         OnGoalCountChanged?.Invoke(_goals);
@@ -213,6 +216,11 @@ public class GameManager : MonoBehaviour
     // -------------------------------------------------------------------------
     // Ciclo de jogadas
     // -------------------------------------------------------------------------
+    /// <summary>
+    /// Chamado pela calibração do gol. Na PRIMEIRA vez, inicia a partida.
+    /// Nas vezes seguintes (recalibração), apenas atualiza a largura do gol —
+    /// a partida NUNCA reinicia (placar e jogo continuam).
+    /// </summary>
     public void StartMatch()
     {
         if (matchManager == null)
@@ -221,6 +229,16 @@ public class GameManager : MonoBehaviour
             return;
         }
 
+        // Recalibração: só redimensiona o gol, sem reiniciar nada.
+        if (_matchStarted)
+        {
+            matchManager.OnGoalCalibratedHandler(goalWidthForMatch());
+            Debug.Log("[GameManager] Gol recalibrado (partida continua).");
+            return;
+        }
+
+        // Primeira calibração: inicia a partida.
+        _matchStarted = true;
         _saves = 0;
         _goals = 0;
         UpdateUI();

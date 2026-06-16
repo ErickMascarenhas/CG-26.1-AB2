@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using TMPro;
+using Unity.XR.CoreUtils;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.XR.Hands;
@@ -37,11 +38,28 @@ public class HandTrackingCatch : MonoBehaviour
     [Header("Configuração da mão")]
     public bool isLeftHand = false;
 
+    [Header("Espaço de rastreamento")]
+    [Tooltip("Transform do XR Origin (Camera Offset). As poses das mãos vêm nesse espaço; " +
+             "se vazio, é encontrado automaticamente. Necessário para a mão ficar no lugar certo no mundo.")]
+    public Transform xrOriginTransform;
+
     [Header("Collider da palma")]
     [Tooltip("SphereCollider trigger da palma. Se vazio, é criado automaticamente.")]
     public SphereCollider palmTrigger;
     [Tooltip("Raio do collider da palma (m) se criado automaticamente. Aumente se estiver difícil agarrar.")]
     public float palmTriggerRadius = 0.16f;
+
+    [Header("Rebatida física (espalmar de verdade)")]
+    [Tooltip("Collider SÓLIDO que defletie a bola com a mão aberta. Auto-criado se vazio.")]
+    public SphereCollider parryCollider;
+    [Tooltip("Raio do collider de rebatida (fração do raio do trigger).")]
+    public float parryRadiusFactor = 0.85f;
+    [Tooltip("Quanto da velocidade da mão é transferida ao rebater (efeito 'soco').")]
+    public float parryPunch = 1.0f;
+    [Tooltip("Quique mínimo da rebatida (velocidade de saída mínima, m/s).")]
+    public float parryMinSpeed = 3f;
+    [Tooltip("Fração da velocidade de entrada preservada ao rebater.")]
+    public float parryBounciness = 0.6f;
 
     [Header("Thresholds")]
     [Range(0f, 1f)]
@@ -116,7 +134,7 @@ public class HandTrackingCatch : MonoBehaviour
         _rb.isKinematic = true;
         _rb.useGravity  = false;
 
-        // Cria o collider da palma automaticamente se não foi atribuído
+        // Cria o collider da palma (trigger) automaticamente se não foi atribuído
         if (palmTrigger == null)
         {
             palmTrigger = gameObject.AddComponent<SphereCollider>();
@@ -127,11 +145,53 @@ public class HandTrackingCatch : MonoBehaviour
         {
             palmTrigger.isTrigger = true;
         }
+
+        // Cria o collider SÓLIDO de rebatida (espalmar físico)
+        if (parryCollider == null)
+        {
+            parryCollider = gameObject.AddComponent<SphereCollider>();
+        }
+        parryCollider.isTrigger = false;
+        parryCollider.radius = palmTriggerRadius * parryRadiusFactor;
+        parryCollider.enabled = false; // ligado só quando a mão está aberta
     }
 
     private void Start()
     {
         TryAcquireSubsystem();
+        ResolveTrackingSpace();
+    }
+
+    /// <summary>
+    /// Descobre o transform que converte as poses (espaço do XR Origin) para o MUNDO.
+    /// As juntas das mãos vêm relativas ao Camera Offset do XR Origin; sem isso o
+    /// collider nasceria perto da origem do mundo, "solto" da mão.
+    /// </summary>
+    private void ResolveTrackingSpace()
+    {
+        if (xrOriginTransform != null) return;
+
+        var origin = FindObjectOfType<XROrigin>();
+        if (origin != null)
+        {
+            xrOriginTransform = origin.CameraFloorOffsetObject != null
+                ? origin.CameraFloorOffsetObject.transform
+                : origin.transform;
+        }
+        else
+        {
+            Debug.LogWarning("[HandTrackingCatch] XR Origin não encontrado — " +
+                             "atribua 'XR Origin Transform' manualmente (Camera Offset).");
+        }
+    }
+
+    /// <summary>Converte uma pose do espaço do XR Origin para o espaço de mundo.</summary>
+    private Pose ToWorld(Pose local)
+    {
+        if (xrOriginTransform == null) return local;
+        return new Pose(
+            xrOriginTransform.TransformPoint(local.position),
+            xrOriginTransform.rotation * local.rotation);
     }
 
     private void TryAcquireSubsystem()
@@ -156,8 +216,11 @@ public class HandTrackingCatch : MonoBehaviour
         XRHand hand = isLeftHand ? _handSubsystem.leftHand : _handSubsystem.rightHand;
 
         // ── Tracking ────────────────────────────────────────────────────────
-        if (hand.isTracked && hand.GetJoint(_palmJoint).TryGetPose(out Pose palmPose))
+        if (hand.isTracked && hand.GetJoint(_palmJoint).TryGetPose(out Pose palmPoseLocal))
         {
+            // Converte do espaço do XR Origin para o MUNDO (corrige o collider "solto").
+            Pose palmPose = ToWorld(palmPoseLocal);
+
             _trackingLost = false;
             _trackingLossTimer = 0f;
             _hasPalmPose = true;
@@ -166,7 +229,7 @@ public class HandTrackingCatch : MonoBehaviour
             _currentPalmPos = palmPose.position;
             _lastKnownPalmPose = palmPose;
 
-            // O objeto da mão SEGUE a palma → o trigger acompanha a mão real
+            // O objeto da mão SEGUE a palma → o trigger/collider acompanham a mão real
             transform.SetPositionAndRotation(palmPose.position, palmPose.rotation);
         }
         else
@@ -179,6 +242,9 @@ public class HandTrackingCatch : MonoBehaviour
             else if (_isHolding && _trackingLossTimer > toleranceWindow)
                 DropBall();                                 // perdeu por tempo demais
 
+            // Sem tracking, não rebate (mão "congelada" não deve socar a bola).
+            if (parryCollider != null) parryCollider.enabled = false;
+
             UpdateDebug(false, 0f);
             return;
         }
@@ -186,6 +252,12 @@ public class HandTrackingCatch : MonoBehaviour
         // ── Closedness ──────────────────────────────────────────────────────
         float closedness = ComputeHandClosedness(hand);
         UpdateDebug(true, closedness);
+
+        // Collider sólido de rebatida LIGADO só com a mão ABERTA (e sem bola).
+        // Ao fechar para agarrar, ele desliga e a bola entra no trigger de agarre.
+        bool wantSolid = !_isHolding && closedness < catchStartThreshold;
+        if (parryCollider != null && parryCollider.enabled != wantSolid)
+            parryCollider.enabled = wantSolid;
 
         if (_isHolding)
         {
@@ -203,6 +275,38 @@ public class HandTrackingCatch : MonoBehaviour
             // independente de em qual frame a bola entrou no trigger.
             CatchBall(_ballInRange);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Rebatida física (espalmar) — colisão do collider sólido com a bola
+    // -------------------------------------------------------------------------
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (_isHolding) return;
+        if (!collision.collider.CompareTag("Ball")) return;
+        var ballRb = collision.rigidbody;
+        if (ballRb == null) return;
+
+        // Velocidade atual da mão (para "socar" a bola na direção do movimento).
+        Vector3 handVel = (_currentPalmPos - _prevPalmPos) / Mathf.Max(Time.deltaTime, 0.0001f);
+
+        // Direção de saída = da palma para a bola (sempre para longe da mão), com leve alça.
+        Vector3 pushDir = ballRb.transform.position - transform.position;
+        pushDir.y = Mathf.Max(pushDir.y, 0.05f);
+        if (pushDir.sqrMagnitude < 0.0001f) pushDir = Vector3.up;
+        pushDir.Normalize();
+
+        float incoming = collision.relativeVelocity.magnitude;
+        float speed = Mathf.Max(incoming * parryBounciness, parryMinSpeed);
+
+        ballRb.linearVelocity = pushDir * speed + handVel * parryPunch;
+
+        if (!_parryFiredThisTouch)
+        {
+            _parryFiredThisTouch = true;
+            OnParry?.Invoke();
+        }
+        Debug.Log("[HandTrackingCatch] Rebatida (espalmar físico).");
     }
 
     // -------------------------------------------------------------------------
