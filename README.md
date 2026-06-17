@@ -4,6 +4,14 @@
 
 ---
 
+## Contribuidores
+
+- Erick Mascarenhas
+- Jadiel Lino
+- Neilton Gabriel
+
+---
+
 ## Sumário
 
 - [Clonar o projeto](#clonar-o-projeto)
